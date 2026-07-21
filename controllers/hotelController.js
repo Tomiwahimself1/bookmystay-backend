@@ -44,13 +44,20 @@ const createHotel = async (req, res) => {
   try {
     const { name, description, address, city, country, images, rating } = req.body;
 
+    // 1. Check if a photo was uploaded via Cloudinary
+    let hotelImages = images ? (Array.isArray(images) ? images : [images]) : [];
+    if (req.file) {
+      hotelImages.push(req.file.path); // Add Cloudinary URL to images array
+    }
+
+    // 2. Create the hotel record
     const hotel = new Hotel({
       name,
       description,
       address,
       city,
       country,
-      images: images || [],
+      images: hotelImages,
       rating: rating || 0,
     });
 
@@ -74,8 +81,14 @@ const updateHotel = async (req, res) => {
       hotel.address = req.body.address || hotel.address;
       hotel.city = req.body.city || hotel.city;
       hotel.country = req.body.country || hotel.country;
-      hotel.images = req.body.images || hotel.images;
       hotel.rating = req.body.rating || hotel.rating;
+
+      // Update images if a new file is uploaded
+      if (req.file) {
+        hotel.images.push(req.file.path);
+      } else if (req.body.images) {
+        hotel.images = req.body.images;
+      }
 
       const updatedHotel = await hotel.save();
       res.json(updatedHotel);
