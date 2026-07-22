@@ -155,9 +155,6 @@ bookmystay-backend/
 ---
 
 ## 👥 Authors & Contributors
-
-* **Babalola Amatulmumin**[cite: 4]
-* **Osineye Adenike**[cite: 4]
 * **Adedinsewo Adetomiwa**[cite: 4]
 
 ---
