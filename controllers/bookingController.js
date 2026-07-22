@@ -1,3 +1,4 @@
+const sendEmail = require('../utils/sendEmail');
 const Booking = require('../models/Booking');
 const Room = require('../models/Room');
 
@@ -58,6 +59,31 @@ const createBooking = async (req, res) => {
     });
 
     const createdBooking = await booking.save();
+
+    // 6. SEND CONFIRMATION EMAIL
+    try {
+      const emailHtml = `
+        <h2>Booking Confirmation - BookMyStay</h2>
+        <p>Hi ${req.user.name},</p>
+        <p>Thank you for choosing BookMyStay! Your reservation has been placed successfully.</p>
+        <ul>
+          <li><strong>Booking ID:</strong> ${createdBooking._id}</li>
+          <li><strong>Check-in Date:</strong> ${createdBooking.checkInDate}</li>
+          <li><strong>Check-out Date:</strong> ${createdBooking.checkOutDate}</li>
+          <li><strong>Total Amount:</strong> $${createdBooking.totalAmount}</li>
+        </ul>
+        <p>Please complete your payment to finalize your room reservation.</p>
+      `;
+
+      await sendEmail({
+        email: req.user.email,
+        subject: 'BookMyStay - Reservation Received',
+        htmlMessage: emailHtml,
+      });
+    } catch (emailError) {
+      console.error('Email sending failed:', emailError.message);
+    }
+
     res.status(201).json(createdBooking);
   } catch (error) {
     res.status(500).json({ message: error.message });
