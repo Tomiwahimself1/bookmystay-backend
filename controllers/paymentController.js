@@ -1,63 +1,112 @@
-const Payment = require('../models/Payment');
+const axios = require('axios');
 const Booking = require('../models/Booking');
+const Payment = require('../models/Payment');
 
-// @desc    Process a booking payment (Stripe / Paystack Integration Simulation)
-// @route   POST /api/payments
+// @desc    Initialize Paystack Payment
+// @route   POST /api/payments/initialize
 // @access  Private
-const processPayment = async (req, res) => {
+const initializePayment = async (req, res) => {
   try {
-    const { bookingId, paymentMethod, transactionId } = req.body;
+    const { bookingId } = req.body;
 
-    const booking = await Booking.findById(bookingId);
+    // 1. Find booking details
+    const booking = await Booking.findById(bookingId).populate('user', 'email name');
     if (!booking) {
       return res.status(404).json({ message: 'Booking not found' });
     }
 
-    if (booking.status === 'confirmed') {
-      return res.status(400).json({ message: 'Booking is already paid and confirmed' });
-    }
+    // Paystack takes amount in kobo/cents (multiply by 100)
+    const amountInKobo = booking.totalAmount * 100;
 
-    // Create payment entry
-    const payment = new Payment({
-      booking: booking._id,
+    // 2. Call Paystack API to initialize transaction
+    const response = await axios.post(
+      'https://api.paystack.co/transaction/initialize',
+      {
+        email: booking.user.email,
+        amount: amountInKobo,
+        metadata: {
+          bookingId: booking._id.toString(),
+          userId: req.user._id.toString(),
+        },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    const { authorization_url, reference } = response.data.data;
+
+    // 3. Save initial pending payment record in DB
+    await Payment.create({
       user: req.user._id,
+      booking: booking._id,
       amount: booking.totalAmount,
-      paymentMethod: paymentMethod || 'Stripe/Paystack',
-      paymentStatus: 'completed',
-      transactionId: transactionId || `TXN_${Date.now()}`,
+      paymentMethod: 'Paystack',
+      status: 'Pending',
+      transactionId: reference,
     });
 
-    const savedPayment = await payment.save();
-
-    // Update booking status to confirmed
-    booking.status = 'confirmed';
-    await booking.save();
-
-    res.status(201).json({
-      message: 'Payment successful and booking confirmed',
-      payment: savedPayment,
+    res.status(200).json({
+      message: 'Payment initialized successfully',
+      authorization_url, // Link user opens to pay
+      reference,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: error.response?.data?.message || error.message });
   }
 };
 
-// @desc    Get payment details by booking ID
-// @route   GET /api/payments/booking/:bookingId
+// @desc    Verify Paystack Payment
+// @route   GET /api/payments/verify/:reference
 // @access  Private
-const getPaymentByBooking = async (req, res) => {
+const verifyPayment = async (req, res) => {
   try {
-    const payment = await Payment.findOne({ booking: req.params.bookingId }).populate('booking');
-    if (!payment) {
-      return res.status(404).json({ message: 'Payment details not found' });
+    const { reference } = req.params;
+
+    // 1. Call Paystack API to verify reference
+    const response = await axios.get(
+      `https://api.paystack.co/transaction/verify/${reference}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+        },
+      }
+    );
+
+    const data = response.data.data;
+
+    if (data.status === 'success') {
+      const bookingId = data.metadata.bookingId;
+
+      // 2. Update Payment record to Paid
+      await Payment.findOneAndUpdate(
+        { transactionId: reference },
+        { status: 'Completed' }
+      );
+
+      // 3. Update Booking status to confirmed
+      await Booking.findByIdAndUpdate(bookingId, { status: 'confirmed' });
+
+      return res.status(200).json({
+        message: 'Payment verified successfully. Booking confirmed!',
+        data,
+      });
+    } else {
+      await Payment.findOneAndUpdate(
+        { transactionId: reference },
+        { status: 'Failed' }
+      );
+      return res.status(400).json({ message: 'Payment verification failed' });
     }
-    res.json(payment);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: error.response?.data?.message || error.message });
   }
 };
 
 module.exports = {
-  processPayment,
-  getPaymentByBooking,
+  initializePayment,
+  verifyPayment,
 };
