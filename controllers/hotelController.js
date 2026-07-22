@@ -1,4 +1,5 @@
 const Hotel = require('../models/Hotel');
+const { geocodeAddress } = require('../utils/googleMaps');
 
 // @desc    Get all hotels
 // @route   GET /api/hotels
@@ -32,8 +33,25 @@ const getHotelById = async (req, res) => {
 // @access  Private/Admin
 const createHotel = async (req, res) => {
   try {
-    const { name, description, address, city, state, country, amenities } = req.body;
-    const hotel = new Hotel({ name, description, address, city, state, country, amenities });
+    const { name, description, address, city, state, country, amenities, images } = req.body;
+
+    // 1. Geocode address using Google Maps utility
+    const fullAddress = `${address}, ${city}${state ? `, ${state}` : ''}${country ? `, ${country}` : ''}`;
+    const locationData = await geocodeAddress(fullAddress);
+
+    // 2. Instantiate hotel model with location object included
+    const hotel = new Hotel({
+      name,
+      description,
+      address,
+      city,
+      state,
+      country,
+      amenities,
+      images,
+      location: locationData,
+    });
+
     const createdHotel = await hotel.save();
     res.status(201).json(createdHotel);
   } catch (error) {
@@ -50,7 +68,16 @@ const updateHotel = async (req, res) => {
     if (!hotel) {
       return res.status(404).json({ message: 'Hotel not found' });
     }
+
+    // Assign standard fields
     Object.assign(hotel, req.body);
+
+    // If address, city, or country was updated, recalculate location data
+    if (req.body.address || req.body.city || req.body.country) {
+      const fullAddress = `${hotel.address}, ${hotel.city}${hotel.country ? `, ${hotel.country}` : ''}`;
+      hotel.location = await geocodeAddress(fullAddress);
+    }
+
     const updatedHotel = await hotel.save();
     res.json(updatedHotel);
   } catch (error) {
