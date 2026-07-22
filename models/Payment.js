@@ -21,10 +21,10 @@ const paymentSchema = new mongoose.Schema(
       default: 'Stripe/Paystack',
     },
     paymentStatus: {
-      type: String,
-      enum: ['pending', 'completed', 'failed'],
-      default: 'pending',
-    },
+  type: String,
+  enum: ['pending', 'completed', 'failed'], // lowercase 'completed'!
+  default: 'pending',
+},
     transactionId: {
       type: String,
       required: true,
