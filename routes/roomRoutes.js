@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const {
-  getRoomsByHotel,
+  getRooms,
   getRoomById,
   createRoom,
   updateRoom,
@@ -9,9 +9,8 @@ const {
 } = require('../controllers/roomController');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 
-router.get('/hotel/:hotelId', getRoomsByHotel);
-
 router.route('/')
+  .get(getRooms)
   .post(protect, adminOnly, createRoom);
 
 router.route('/:id')

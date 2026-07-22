@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { protect, adminOnly } = require('../middleware/authMiddleware');
 const {
   createBooking,
   getMyBookings,
@@ -7,17 +8,19 @@ const {
   cancelBooking,
   getAllBookings,
 } = require('../controllers/bookingController');
-const { protect, adminOnly } = require('../middleware/authMiddleware');
 
 router.route('/')
   .post(protect, createBooking)
   .get(protect, adminOnly, getAllBookings);
 
-router.get('/mybookings', protect, getMyBookings);
+// Make sure /mybookings comes BEFORE /:id !
+router.route('/mybookings')
+  .get(protect, getMyBookings);
 
 router.route('/:id')
   .get(protect, getBookingById);
 
-router.put('/:id/cancel', protect, cancelBooking);
+router.route('/:id/cancel')
+  .put(protect, cancelBooking);
 
 module.exports = router;

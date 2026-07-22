@@ -1,23 +1,24 @@
 const Room = require('../models/Room');
+const Hotel = require('../models/Hotel');
 
-// @desc    Get all rooms for a specific hotel
-// @route   GET /api/rooms/hotel/:hotelId
+// @desc    Get all rooms
+// @route   GET /api/rooms
 // @access  Public
-const getRoomsByHotel = async (req, res) => {
+const getRooms = async (req, res) => {
   try {
-    const rooms = await Room.find({ hotel: req.params.hotelId });
+    const rooms = await Room.find({}).populate('hotel', 'name city');
     res.json(rooms);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// @desc    Get single room details
+// @desc    Get single room by ID
 // @route   GET /api/rooms/:id
 // @access  Public
 const getRoomById = async (req, res) => {
   try {
-    const room = await Room.findById(req.params.id).populate('hotel', 'name city');
+    const room = await Room.findById(req.params.id).populate('hotel', 'name city address');
     if (!room) {
       return res.status(404).json({ message: 'Room not found' });
     }
@@ -32,15 +33,21 @@ const getRoomById = async (req, res) => {
 // @access  Private/Admin
 const createRoom = async (req, res) => {
   try {
-    const { hotel, roomType, pricePerNight, maxOccupancy, isAvailable, images } = req.body;
+    const { hotel, roomNumber, roomType, pricePerNight, maxOccupancy, amenities, isAvailable } = req.body;
+
+    const hotelExists = await Hotel.findById(hotel);
+    if (!hotelExists) {
+      return res.status(404).json({ message: 'Hotel not found' });
+    }
 
     const room = new Room({
       hotel,
+      roomNumber,
       roomType,
       pricePerNight,
       maxOccupancy,
+      amenities,
       isAvailable,
-      images: images || [],
     });
 
     const createdRoom = await room.save();
@@ -57,18 +64,14 @@ const updateRoom = async (req, res) => {
   try {
     const room = await Room.findById(req.params.id);
 
-    if (room) {
-      room.roomType = req.body.roomType || room.roomType;
-      room.pricePerNight = req.body.pricePerNight || room.pricePerNight;
-      room.maxOccupancy = req.body.maxOccupancy || room.maxOccupancy;
-      room.isAvailable = req.body.isAvailable !== undefined ? req.body.isAvailable : room.isAvailable;
-      room.images = req.body.images || room.images;
-
-      const updatedRoom = await room.save();
-      res.json(updatedRoom);
-    } else {
-      res.status(404).json({ message: 'Room not found' });
+    if (!room) {
+      return res.status(404).json({ message: 'Room not found' });
     }
+
+    Object.assign(room, req.body);
+    const updatedRoom = await room.save();
+
+    res.json(updatedRoom);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -81,19 +84,19 @@ const deleteRoom = async (req, res) => {
   try {
     const room = await Room.findById(req.params.id);
 
-    if (room) {
-      await room.deleteOne();
-      res.json({ message: 'Room removed' });
-    } else {
-      res.status(404).json({ message: 'Room not found' });
+    if (!room) {
+      return res.status(404).json({ message: 'Room not found' });
     }
+
+    await room.deleteOne();
+    res.json({ message: 'Room removed successfully' });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
 module.exports = {
-  getRoomsByHotel,
+  getRooms,
   getRoomById,
   createRoom,
   updateRoom,
