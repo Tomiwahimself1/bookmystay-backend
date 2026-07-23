@@ -1,129 +1,98 @@
-const sendEmail = require('../utils/sendEmail');
 const Booking = require('../models/Booking');
 const Room = require('../models/Room');
+const sendEmail = require('../utils/sendEmail');
 
-// @desc    Create new booking with overlapping availability check
+// @desc    Create new booking
 // @route   POST /api/bookings
 // @access  Private
 const createBooking = async (req, res) => {
   try {
-    const { room, checkInDate, checkOutDate } = req.body;
+    const { room: roomId, checkInDate, checkOutDate, totalPrice } = req.body;
 
-    // 1. Find the room
-    const roomDetails = await Room.findById(room);
-    if (!roomDetails) {
+    const room = await Room.findById(roomId).populate('hotel');
+    if (!room) {
       return res.status(404).json({ message: 'Room not found' });
     }
 
-    if (!roomDetails.isAvailable) {
-      return res.status(400).json({ message: 'Room is currently disabled for bookings' });
+    if (!room.isAvailable) {
+      return res.status(400).json({ message: 'Room is currently not available' });
     }
 
-    // 2. Validate dates
-    const checkIn = new Date(checkInDate);
-    const checkOut = new Date(checkOutDate);
-    const timeDiff = checkOut.getTime() - checkIn.getTime();
-    const nights = Math.ceil(timeDiff / (1000 * 3600 * 24));
-
-    if (isNaN(checkIn.getTime()) || isNaN(checkOut.getTime()) || nights <= 0) {
-      return res.status(400).json({ message: 'Invalid check-in/check-out dates' });
-    }
-
-    // 3. OVERLAPPING BOOKING CHECK
-    // Find active bookings for the same room where dates overlap
-    const existingBooking = await Booking.findOne({
-      room: roomDetails._id,
-      status: { $ne: 'cancelled' }, // Ignore cancelled bookings
-      checkInDate: { $lt: checkOut },
-      checkOutDate: { $gt: checkIn },
-    });
-
-    if (existingBooking) {
-      return res.status(400).json({
-        message: 'Room is already booked for the selected dates',
-      });
-    }
-
-    // 4. Calculate total amount
-    const totalAmount = nights * roomDetails.pricePerNight;
-
-    // 5. Create booking
-    const booking = new Booking({
+    const booking = await Booking.create({
       user: req.user._id,
-      room: roomDetails._id,
-      hotel: roomDetails.hotel,
+      room: roomId,
+      hotel: room.hotel._id,
       checkInDate,
       checkOutDate,
-      totalAmount,
-      status: 'pending',
+      totalPrice,
+      paymentStatus: 'pending',
     });
 
-    const createdBooking = await booking.save();
-
-    // 6. SEND CONFIRMATION EMAIL
+    // Send Confirmation Email asynchronously
     try {
-      const emailHtml = `
-        <h2>Booking Confirmation - BookMyStay</h2>
-        <p>Hi ${req.user.name},</p>
-        <p>Thank you for choosing BookMyStay! Your reservation has been placed successfully.</p>
+      const emailContent = `
+        <h1>Booking Confirmation - BookMyStay</h1>
+        <p>Dear ${req.user.name},</p>
+        <p>Thank you for choosing <strong>BookMyStay</strong>!</p>
+        <h3>Booking Details:</h3>
         <ul>
-          <li><strong>Booking ID:</strong> ${createdBooking._id}</li>
-          <li><strong>Check-in Date:</strong> ${createdBooking.checkInDate}</li>
-          <li><strong>Check-out Date:</strong> ${createdBooking.checkOutDate}</li>
-          <li><strong>Total Amount:</strong> $${createdBooking.totalAmount}</li>
+          <li><strong>Booking ID:</strong> ${booking._id}</li>
+          <li><strong>Hotel:</strong> ${room.hotel ? room.hotel.name : 'N/A'}</li>
+          <li><strong>Room Type:</strong> ${room.roomType}</li>
+          <li><strong>Check-In Date:</strong> ${new Date(checkInDate).toDateString()}</li>
+          <li><strong>Check-Out Date:</strong> ${new Date(checkOutDate).toDateString()}</li>
+          <li><strong>Total Amount:</strong> ₦${totalPrice}</li>
         </ul>
-        <p>Please complete your payment to finalize your room reservation.</p>
+        <p>We look forward to hosting you!</p>
       `;
 
       await sendEmail({
         email: req.user.email,
-        subject: 'BookMyStay - Reservation Received',
-        htmlMessage: emailHtml,
+        subject: 'Your Booking Confirmation - BookMyStay',
+        message: `Thank you for your booking! Booking ID: ${booking._id}`,
+        html: emailContent,
       });
-    } catch (emailError) {
-      console.error('Email sending failed:', emailError.message);
+    } catch (emailErr) {
+      console.error('Email notification failed to send:', emailErr.message);
+      // We don't throw an error here so the booking process still completes
     }
 
-    res.status(201).json(createdBooking);
+    res.status(201).json(booking);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// @desc    Get logged in user's bookings (Booking History)
+// @desc    Get logged in user bookings
 // @route   GET /api/bookings/mybookings
 // @access  Private
 const getMyBookings = async (req, res) => {
   try {
     const bookings = await Booking.find({ user: req.user._id })
-      .populate('hotel', 'name city address')
-      .populate('room', 'roomType pricePerNight');
+      .populate('hotel', 'name address city')
+      .populate('room', 'roomType roomNumber price');
+
     res.json(bookings);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// @desc    Get single booking by ID
+// @desc    Get booking by ID
 // @route   GET /api/bookings/:id
 // @access  Private
 const getBookingById = async (req, res) => {
   try {
     const booking = await Booking.findById(req.params.id)
-      .populate('hotel', 'name city address')
-      .populate('room', 'roomType pricePerNight')
-      .populate('user', 'name email');
+      .populate('user', 'name email')
+      .populate('hotel', 'name address city')
+      .populate('room', 'roomType roomNumber price');
 
-    if (!booking) {
-      return res.status(404).json({ message: 'Booking not found' });
+    if (booking) {
+      res.json(booking);
+    } else {
+      res.status(404).json({ message: 'Booking not found' });
     }
-
-    // Ensure only booking owner or admin can view
-    if (booking.user._id.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Not authorized to view this booking' });
-    }
-
-    res.json(booking);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -140,34 +109,15 @@ const cancelBooking = async (req, res) => {
       return res.status(404).json({ message: 'Booking not found' });
     }
 
-    // Verify ownership or admin
+    // Check ownership or admin
     if (booking.user.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Not authorized to cancel this booking' });
     }
 
-    if (booking.status === 'cancelled') {
-      return res.status(400).json({ message: 'Booking is already cancelled' });
-    }
-
-    booking.status = 'cancelled';
+    booking.bookingStatus = 'cancelled';
     await booking.save();
 
     res.json({ message: 'Booking cancelled successfully', booking });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// @desc    Get all bookings (Admin only)
-// @route   GET /api/bookings
-// @access  Private/Admin
-const getAllBookings = async (req, res) => {
-  try {
-    const bookings = await Booking.find({})
-      .populate('user', 'name email')
-      .populate('hotel', 'name')
-      .populate('room', 'roomType');
-    res.json(bookings);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -178,5 +128,4 @@ module.exports = {
   getMyBookings,
   getBookingById,
   cancelBooking,
-  getAllBookings,
 };

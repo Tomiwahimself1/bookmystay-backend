@@ -1,29 +1,27 @@
 const nodemailer = require('nodemailer');
 
 const sendEmail = async (options) => {
-  const port = Number(process.env.EMAIL_PORT) || 465;
-
-  // 1. Create a transporter
+  // Create transporter using environment variables or fallback SMTP settings
   const transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: port,
-    secure: port === 465, // true for port 465, false for 587
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: process.env.SMTP_PORT || 587,
+    secure: false, // true for 465, false for other ports
     auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
+      user: process.env.SMTP_EMAIL,
+      pass: process.env.SMTP_PASSWORD,
     },
   });
 
-  // 2. Define email options
-  const mailOptions = {
-    from: `"BookMyStay Reservation" <${process.env.EMAIL_USER}>`,
+  const message = {
+    from: `${process.env.FROM_NAME || 'BookMyStay'} <${process.env.SMTP_EMAIL || 'noreply@bookmystay.com'}>`,
     to: options.email,
     subject: options.subject,
-    html: options.htmlMessage,
+    text: options.message,
+    html: options.html,
   };
 
-  // 3. Send the email
-  await transporter.sendMail(mailOptions);
+  const info = await transporter.sendMail(message);
+  console.log('Email sent: %s', info.messageId);
 };
 
 module.exports = sendEmail;
